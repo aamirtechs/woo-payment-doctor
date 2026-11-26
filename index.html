@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Woo Payment Doctor - AamirTechs</title>
+<style>
+:root{--navy:#0b1f3a;--gold:#d4a72c;--bg:#f6f8fb;--ink:#1c2733;--muted:#5b6b7c;--line:#d9e1ea}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--navy);color:#fff;padding:28px 20px;border-bottom:4px solid var(--gold)}
+header .wrap{max-width:880px;margin:0 auto}
+header h1{margin:0 0 6px;font-size:1.6rem}
+header p{margin:0;color:#c8d4e4}
+main{max-width:880px;margin:24px auto;padding:0 20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(11,31,58,.08)}
+label{display:block;font-weight:600;margin:14px 0 6px}
+.card>label:first-child{margin-top:0}
+textarea{width:100%;min-height:180px;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem}
+input[type=text],input[type=number],select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.95rem;width:100%}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:4px}
+.grid label{margin:0 0 6px}
+.row{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+button{background:var(--navy);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:.95rem;cursor:pointer}
+button.alt{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+button.gold{background:var(--gold);color:#0b1f3a;font-weight:600}
+pre{background:#0b1f3a;color:#eef3f9;border-radius:8px;padding:16px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;min-height:60px;font-size:.85rem}
+footer{max-width:880px;margin:0 auto 32px;padding:0 20px;color:var(--muted);font-size:.9rem}
+footer a{color:var(--navy)}
+.hint{color:var(--muted);font-size:.85rem;margin-top:6px;font-weight:400}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>Woo Payment Doctor</h1><p>Audit a WooCommerce payment attempts CSV export for the problems that quietly cost a store sales: failed payments with no later successful retry (lost revenue), card-testing bursts (one email hammering the checkout with small failed attempts), orders that failed three or more times, stale pending payments stuck waiting for a gateway, gateways whose failure rate is above the healthy limit, failed payments with no decline reason recorded, and bad data such as duplicate payment ids, malformed rows, invalid amounts, and invalid or future dates.</p></div></header>
+<main><div class="card">
+<label for="file">Input CSV file</label>
+<input type="file" id="file" accept=".csv,text/csv">
+<label for="input">Or paste the payments CSV</label>
+<textarea id="input" spellcheck="false" placeholder="Paste a payments CSV export here, or load the sample."></textarea>
+<label>Options</label>
+<div class="grid">
+<div><label for="opt-stale">Stale days <span class="hint">(--stale-days)</span></label><input type="number" id="opt-stale" step="1" value="7"></div>
+<div><label for="opt-rate">Max failure rate % <span class="hint">(--max-failure-rate)</span></label><input type="number" id="opt-rate" step="1" value="20"></div>
+<div><label for="opt-burst-count">Burst count <span class="hint">(--burst-count)</span></label><input type="number" id="opt-burst-count" step="1" value="3"></div>
+<div><label for="opt-burst-hours">Burst hours <span class="hint">(--burst-hours)</span></label><input type="number" id="opt-burst-hours" step="1" value="24"></div>
+<div><label for="opt-asof">As-of date <span class="hint">(--as-of, blank means now)</span></label><input type="text" id="opt-asof" placeholder="2026-11-18"></div>
+</div>
+<div class="row"><button class="gold" id="run" type="button">Run check</button><button class="alt" id="sample" type="button">Load sample</button><button class="alt" id="sample-clean" type="button">Load clean sample</button><button class="alt" id="sample-warn" type="button">Load warnings sample</button><button class="alt" id="download" type="button">Download report</button></div>
+<label for="out">Report</label>
+<pre id="out">Your report will appear here.</pre>
+</div></main>
+<footer>
+<p>Built by AamirTechs. <a href="https://aamirtechs.github.io/">All tools</a> | <a href="https://github.com/aamirtechs/woo-payment-doctor">Source</a></p>
+<p>Privacy: this tool runs 100% in your browser, nothing is uploaded.</p>
+</footer>
+<script id="core">
+// Pure logic port of woo_payment_doctor.py. No DOM access in this block.
+// Decimals are {c: BigInt coefficient, e: exponent} with value c * 10^e,
+// mirroring Python Decimal behaviour for the operations used here.
+function Dec(v) {
+  if (v && typeof v === "object" && typeof v.c === "bigint") return v;
+  var s = String(v).trim().replace(/_/g, "");
+  var m = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(s);
+  if (!m) throw new Error("not a number: " + s);
+  var intPart = m[2] || "";
+  var fracPart = (m[3] !== undefined ? m[3] : (m[4] || ""));
+  var exp = (m[5] ? parseInt(m[5], 10) : 0) - fracPart.length;
+  var digits = (intPart + fracPart).replace(/^0+/, "");
+  if (digits === "") return { c: 0n, e: exp };
+  var c = BigInt(digits);
+  if (m[1] === "-") c = -c;
+  return { c: c, e: exp };
+}
+function decStr(d) {
+  if (d.c === 0n) {
+    if (d.e >= 0) return "0" + "0".repeat(d.e);
+    var z = "0.";
+    for (var i = 0; i < -d.e - 1; i++) z += "0";
+    return z + "0";
+  }
+  var neg = d.c < 0n;
+  var digits = (neg ? -d.c : d.c).toString();
+  var out;
+  if (d.e >= 0) out = digits + "0".repeat(d.e);
+  else {
+    var pos = digits.length + d.e;
+    if (pos > 0) out = digits.slice(0, pos) + "." + digits.slice(pos);
+    else out = "0." + "0".repeat(-pos) + digits;
+  }
+  return (neg ? "-" : "") + out;
+}
+function pyDecStr(d) {
+  // Python str(Decimal): scientific notation when the exponent is
+  // positive or the adjusted exponent is below -6, plain otherwise.
+  if (d.c === 0n) return decStr(d);
+  var neg = d.c < 0n;
+  var digits = (neg ? -d.c : d.c).toString();
+  var adjusted = d.e + digits.length - 1;
+  if (d.e <= 0 && adjusted >= -6) return decStr(d);
+  var mant = digits.length > 1 ? digits[0] + "." + digits.slice(1) : digits;
+  return (neg ? "-" : "") + mant + "E" + (adjusted >= 0 ? "+" : "-") + Math.abs(adjusted);
+}
+function decAdd(a, b) {
+  var e = Math.min(a.e, b.e);
+  var ca = a.c * (10n ** BigInt(a.e - e));
+  var cb = b.c * (10n ** BigInt(b.e - e));
+  return { c: ca + cb, e: e };
+}
+function decCmp(a, b) {
+  var e = Math.min(a.e, b.e);
+  var ca = a.c * (10n ** BigInt(a.e - e));
+  var cb = b.c * (10n ** BigInt(b.e - e));
+  return ca < cb ? -1 : (ca > cb ? 1 : 0);
+}
+function fmtF(x, digits) {
+  // Python "%.<digits>f" formatting of a double: round half even on
+  // the exact binary value.
+  if (typeof x !== "number" || !isFinite(x)) return String(x);
+  var neg = x < 0 || Object.is(x, -0);
+  var ax = Math.abs(x);
+  var buf = new DataView(new ArrayBuffer(8));
+  buf.setFloat64(0, ax);
+  var hi = buf.getUint32(0), lo = buf.getUint32(4);
+  var expBits = (hi >>> 20) & 0x7ff;
+  var mant, e2;
+  if (expBits === 0) { mant = BigInt(hi & 0xfffff) * 4294967296n + BigInt(lo); e2 = -1074; }
+  else { mant = BigInt((hi & 0xfffff) | 0x100000) * 4294967296n + BigInt(lo); e2 = expBits - 1075; }
+  var num = mant * (10n ** BigInt(digits));
+  var den = 1n;
+  if (e2 >= 0) num *= (2n ** BigInt(e2)); else den = 2n ** BigInt(-e2);
+  var q = num / den, r = num % den;
+  if (r * 2n > den || (r * 2n === den && (q & 1n) === 1n)) q += 1n;
+  var s = q.toString();
+  if (digits > 0) {
+    while (s.length <= digits) s = "0" + s;
+    s = s.slice(0, s.length - digits) + "." + s.slice(s.length - digits);
+  }
+  return (neg ? "-" : "") + s;
+}
+function pyRepr(v) {
+  if (v === null || v === undefined) return "None";
+  if (typeof v === "string") {
+    var esc = v.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    if (v.indexOf("'") >= 0 && v.indexOf('"') < 0) return '"' + esc + '"';
+    return "'" + esc.replace(/'/g, "\\'") + "'";
+  }
+  return String(v);
+}
+function parseCsvRows(text) {
+  // Mirrors Python csv.reader with the default dialect.
+  var rows = [], row = [], field = "", state = 0, i, ch;
+  text = String(text).replace(/^\uFEFF/, "");
+  function endField() { row.push(field); field = ""; state = 0; }
+  function endRow() { endField(); rows.push(row); row = []; }
+  for (i = 0; i < text.length; i++) {
+    ch = text[i];
+    if (state === 2) {
+      if (ch === '"') state = 3;
+      else field += ch;
+    } else if (state === 3) {
+      if (ch === '"') { field += '"'; state = 2; }
+      else if (ch === ",") endField();
+      else if (ch === "\n") endRow();
+      else if (ch === "\r") { if (text[i + 1] === "\n") i++; endRow(); }
+      else { field += ch; state = 1; }
+    } else if (state === 0 && ch === '"') {
+      state = 2;
+    } else if (ch === ",") endField();
+    else if (ch === "\n") endRow();
+    else if (ch === "\r") { if (text[i + 1] === "\n") i++; endRow(); }
+    else { field += ch; state = 1; }
+  }
+  if (state !== 0 || field !== "" || row.length) endRow();
+  return rows;
+}
+function daysFromCivil(y, m, d) {
+  y -= m <= 2 ? 1 : 0;
+  var era = Math.floor(y / 400);
+  var yoe = y - era * 400;
+  var mp = (m + 9) % 12;
+  var doy = Math.floor((153 * mp + 2) / 5) + d - 1;
+  var doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+function validDate(y, mo, d) {
+  if (mo < 1 || mo > 12 || d < 1) return false;
+  var leap = (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0));
+  var dim = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+  return d <= dim;
+}
+function makeTs(y, mo, d, h, mi, s, micro, offMin) {
+  var secs = daysFromCivil(y, mo, d) * 86400 + h * 3600 + mi * 60 + s - offMin * 60;
+  return { micro: BigInt(secs) * 1000000n + BigInt(micro), y: y, mo: mo, d: d, h: h, mi: mi };
+}
+function isoParse(text) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})(?:.(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:\s*([+-]\d{2}(?::?\d{2})?(?::?\d{2})?))?)?$/.exec(text);
+  if (m) {
+    var y = +m[1], mo = +m[2], d = +m[3];
+    if (!validDate(y, mo, d)) return null;
+    var h = m[4] !== undefined ? +m[4] : 0;
+    var mi = m[5] !== undefined ? +m[5] : 0;
+    var s = m[6] !== undefined ? +m[6] : 0;
+    if (h > 23 || mi > 59 || s > 59) return null;
+    var micro = m[7] ? parseInt((m[7] + "000000").slice(0, 6), 10) : 0;
+    var offMin = 0;
+    if (m[8]) {
+      var sign = m[8][0] === "-" ? -1 : 1;
+      var digs = m[8].slice(1).replace(/:/g, "");
+      var oh = +digs.slice(0, 2);
+      var om = digs.length >= 4 ? +digs.slice(2, 4) : 0;
+      var os = digs.length >= 6 ? +digs.slice(4, 6) : 0;
+      if (oh > 23 || om > 59 || os > 59) return null;
+      offMin = sign * (oh * 60 + om + os / 60);
+    }
+    return makeTs(y, mo, d, h, mi, s, micro, offMin);
+  }
+  if (/^\d{8}$/.test(text)) {
+    var y2 = +text.slice(0, 4), mo2 = +text.slice(4, 6), d2 = +text.slice(6, 8);
+    if (validDate(y2, mo2, d2)) return makeTs(y2, mo2, d2, 0, 0, 0, 0, 0);
+  }
+  return null;
+}
+function parseTimestamp(text) {
+  if (text === null || text === undefined) return null;
+  text = String(text).trim();
+  if (!text) return null;
+  var candidate = text;
+  if (candidate.endsWith("Z") || candidate.endsWith("z")) candidate = candidate.slice(0, -1) + "+00:00";
+  var parsed = isoParse(candidate);
+  if (parsed) return parsed;
+  var pats = [
+    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2}):(\d{1,2})$/, map: "ymdhms" },
+    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2})$/, map: "ymdhm" },
+    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})$/, map: "ymd" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2})$/, map: "dmyhm" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2})$/, map: "mdyhm" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, map: "dmy" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, map: "mdy" }
+  ];
+  for (var i = 0; i < pats.length; i++) {
+    var mm = pats[i].re.exec(candidate);
+    if (!mm) continue;
+    var g = mm.slice(1).map(Number);
+    var Y, Mo, D, H = 0, Mi = 0, S = 0;
+    var kind = pats[i].map;
+    if (kind[0] === "y") { Y = g[0]; Mo = g[1]; D = g[2]; if (g.length > 3) { H = g[3]; Mi = g[4]; } if (g.length > 5) S = g[5]; }
+    else if (kind[0] === "d") { D = g[0]; Mo = g[1]; Y = g[2]; if (g.length > 3) { H = g[3]; Mi = g[4]; } }
+    else { Mo = g[0]; D = g[1]; Y = g[2]; if (g.length > 3) { H = g[3]; Mi = g[4]; } }
+    if (!validDate(Y, Mo, D) || H > 23 || Mi > 59 || S > 59) continue;
+    return makeTs(Y, Mo, D, H, Mi, S, 0, 0);
+  }
+  return null;
+}
+function pad2(n) { return (n < 10 ? "0" : "") + n; }
+function padYear(y) { var s = String(y); while (s.length < 4) s = "0" + s; return s; }
+function fmtTs(ts) { return padYear(ts.y) + "-" + pad2(ts.mo) + "-" + pad2(ts.d) + " " + pad2(ts.h) + ":" + pad2(ts.mi); }
+function nowTs() {
+  var n = new Date();
+  return { micro: BigInt(n.getTime()) * 1000n, y: n.getUTCFullYear(), mo: n.getUTCMonth() + 1, d: n.getUTCDate(), h: n.getUTCHours(), mi: n.getUTCMinutes() };
+}
+function totalSeconds(a, b) { return Number(b.micro - a.micro) / 1000000; }
+function findColumn(header, names) {
+  for (var i = 0; i < names.length; i++) if (header.indexOf(names[i]) >= 0) return names[i];
+  return null;
+}
+function parseAmount(text) {
+  if (text === null || text === undefined) return null;
+  text = String(text).trim();
+  if (!text) return null;
+  var cleaned = text.replace(/\$/g, "").replace(/,/g, "").trim();
+  var value;
+  try { value = Dec(cleaned); } catch (e) { return null; }
+  if (decCmp(value, Dec(0)) <= 0) return null;
+  return value;
+}
+function normalizeStatus(text) {
+  if (text === null || text === undefined) return "";
+  var status = String(text).trim().toLowerCase();
+  if (status === "success") return "succeeded";
+  if (status === "declined") return "failed";
+  return status;
+}
+var KNOWN_STATUSES = { succeeded: 1, failed: 1, pending: 1, refunded: 1, cancelled: 1, canceled: 1, authorized: 1 };
+function F(payment, rule, severity, message) { return { payment: payment, rule: rule, severity: severity, message: message }; }
+function findingStr(f) { return f.severity.toUpperCase() + " [" + f.rule + "] " + f.payment + ": " + f.message; }
+function parseCsv(text, asOf) {
+  var rows = parseCsvRows(text);
+  if (!rows.length) throw new Error("input is empty, no header row found");
+  var header = rows[0].map(function (name) { return name.trim(); });
+  function need(names, label) {
+    var col = findColumn(header, names);
+    if (col === null) throw new Error("input has no " + label + " column (header is: " + header.join(", ") + ")");
+    return col;
+  }
+  var idColumn = need(["payment_id", "id", "transaction_id"], "payment_id or id");
+  var orderColumn = need(["order_id", "order"], "order_id");
+  var gatewayColumn = need(["gateway", "payment_method", "method"], "gateway");
+  var amountColumn = need(["amount", "total"], "amount");
+  var statusColumn = need(["status", "payment_status"], "status");
+  var errorColumn = findColumn(header, ["error_code", "decline_reason", "failure_reason", "error", "decline_code"]);
+  var emailColumn = findColumn(header, ["customer_email", "email", "billing_email"]);
+  var attemptColumn = findColumn(header, ["attempt", "attempt_no"]);
+  var dateColumn = need(["date", "created_at", "payment_date"], "date");
+  var findings = [], payments = [], seenIds = {};
+  for (var idx = 1; idx < rows.length; idx++) {
+    var row = rows[idx];
+    var lineNumber = idx + 1;
+    if (!row.length || row.every(function (cell) { return !cell.trim(); })) continue;
+    if (row.length !== header.length) {
+      findings.push(F("row " + lineNumber, "malformed-row", "error",
+        "row has " + row.length + " fields but the header has " + header.length + ", so the row was skipped"));
+      continue;
+    }
+    var cells = {};
+    header.forEach(function (name, j) { cells[name] = row[j].trim(); });
+    var paymentId = cells[idColumn];
+    if (!paymentId) {
+      findings.push(F("row " + lineNumber, "missing-payment-id", "error",
+        "row has no payment id, so the payment cannot be matched to an order"));
+      paymentId = "row " + lineNumber;
+    }
+    if (seenIds[paymentId]) {
+      findings.push(F(paymentId, "duplicate-payment-id", "error", "payment id appears more than once in the export"));
+    } else seenIds[paymentId] = 1;
+    var orderId = cells[orderColumn];
+    if (!orderId) findings.push(F(paymentId, "missing-order-id", "error", "payment has no order id, so it cannot be matched to a recovery"));
+    var gateway = cells[gatewayColumn];
+    if (!gateway) findings.push(F(paymentId, "missing-gateway", "error", "payment has no gateway, so it cannot be counted in the per-gateway table"));
+    var amountRaw = cells[amountColumn];
+    var amount = parseAmount(amountRaw);
+    if (amount === null) findings.push(F(paymentId, "invalid-amount", "error", "amount " + pyRepr(amountRaw) + " is not a positive number"));
+    var status = normalizeStatus(cells[statusColumn]);
+    if (status && !KNOWN_STATUSES[status]) findings.push(F(paymentId, "invalid-status", "error", "status " + pyRepr(status) + " is not a known payment status"));
+    var dateRaw = cells[dateColumn];
+    var paymentDate = null;
+    if (dateRaw) {
+      paymentDate = parseTimestamp(dateRaw);
+      if (paymentDate === null) findings.push(F(paymentId, "invalid-timestamp", "error", "date " + pyRepr(dateRaw) + " is not a readable date"));
+    }
+    if (paymentDate !== null && paymentDate.micro > asOf.micro) {
+      findings.push(F(paymentId, "future-timestamp", "error",
+        "date " + fmtTs(paymentDate) + " is after the as-of date " + fmtTs(asOf)));
+    }
+    var attemptRaw = attemptColumn ? cells[attemptColumn] : "";
+    var attempt = 1;
+    if (attemptRaw) { var an = parseInt(attemptRaw, 10); attempt = isNaN(an) ? 1 : an; }
+    payments.push({
+      id: paymentId, order_id: orderId, gateway: gateway, amount: amount,
+      amount_raw: amountRaw, status: status,
+      error_code: errorColumn ? cells[errorColumn] : "",
+      email: emailColumn ? cells[emailColumn] : "",
+      attempt: attempt, date: paymentDate, date_raw: dateRaw, line: lineNumber
+    });
+  }
+  return { payments: payments, findings: findings };
+}
+var REPEAT_FAILURES = 3, MIN_GATEWAY_ATTEMPTS = 5;
+function audit(payments, asOf, staleDays, maxFailureRate, burstCount, burstHours) {
+  var findings = [];
+  var successfulOrders = {};
+  payments.forEach(function (p) { if (p.status === "succeeded" && p.order_id) successfulOrders[p.order_id] = 1; });
+  var failedByOrder = {};
+  payments.forEach(function (p) {
+    if (p.status === "failed" && p.order_id) (failedByOrder[p.order_id] = failedByOrder[p.order_id] || []).push(p);
+  });
+  var failedByEmail = {};
+  payments.forEach(function (p) {
+    if (p.status === "failed" && p.email && p.date !== null) {
+      var key = p.email.toLowerCase();
+      (failedByEmail[key] = failedByEmail[key] || []).push(p);
+    }
+  });
+  var burstCounts = {};
+  Object.keys(failedByEmail).forEach(function (email) {
+    var dated = failedByEmail[email].slice().sort(function (a, b) {
+      return a.date.micro < b.date.micro ? -1 : (a.date.micro > b.date.micro ? 1 : 0);
+    });
+    dated.forEach(function (start) {
+      var window = dated.filter(function (item) {
+        return item.date.micro >= start.date.micro &&
+          Number(item.date.micro - start.date.micro) / 1000000 <= burstHours * 3600;
+      });
+      if (window.length >= burstCount) {
+        window.forEach(function (item) {
+          burstCounts[item.id] = Math.max(burstCounts[item.id] || 0, window.length);
+        });
+      }
+    });
+  });
+  payments.forEach(function (p) {
+    var ageDays = null;
+    if (p.date !== null) ageDays = totalSeconds(p.date, asOf) / 86400.0;
+    if (p.status === "failed") {
+      if (p.order_id && successfulOrders[p.order_id]) {
+        findings.push(F(p.id, "failed-payment-recovered", "warning",
+          "payment failed but order " + p.order_id + " was later paid successfully, so the customer recovered"));
+      } else if (p.order_id) {
+        findings.push(F(p.id, "failed-payment-unrecovered", "error",
+          "payment failed and order " + p.order_id + " has no successful payment, so $" +
+          (p.amount !== null ? pyDecStr(p.amount) : "?") + " of revenue is still lost"));
+      }
+      if (!p.error_code) {
+        findings.push(F(p.id, "missing-error-code", "warning",
+          "failed payment has no decline reason recorded, so the cause cannot be diagnosed"));
+      }
+      if (burstCounts[p.id] !== undefined) {
+        findings.push(F(p.id, "card-testing-burst", "error",
+          "customer " + p.email + " has " + burstCounts[p.id] + " failed payments within " +
+          burstHours + " hours, which looks like card testing"));
+      }
+      var orderFailures = p.order_id ? (failedByOrder[p.order_id] || []) : [];
+      if (orderFailures.length >= REPEAT_FAILURES) {
+        findings.push(F(p.id, "repeated-decline", "warning",
+          "order " + p.order_id + " has failed " + orderFailures.length + " times, so the customer is stuck in a retry loop"));
+      }
+    }
+    if (p.status === "pending" && ageDays !== null) {
+      if (ageDays > staleDays) {
+        findings.push(F(p.id, "pending-payment-stale", "error",
+          "payment has waited " + fmtF(ageDays, 1) + " days for the gateway, past the " + staleDays + " day stale window"));
+      } else {
+        findings.push(F(p.id, "pending-payment", "warning", "payment is still waiting for the gateway"));
+      }
+    }
+  });
+  var gateways = {};
+  payments.forEach(function (p) { if (p.gateway) (gateways[p.gateway] = gateways[p.gateway] || []).push(p); });
+  Object.keys(gateways).sort().forEach(function (gateway) {
+    var decided = gateways[gateway].filter(function (p) { return p.status === "succeeded" || p.status === "failed"; });
+    var failed = decided.filter(function (p) { return p.status === "failed"; }).length;
+    if (decided.length >= MIN_GATEWAY_ATTEMPTS && decided.length) {
+      var rate = failed / decided.length * 100.0;
+      if (rate > maxFailureRate) {
+        findings.push(F("gateway " + gateway, "high-gateway-failure-rate", "error",
+          "gateway failed " + failed + " of " + decided.length + " decided payments (" + fmtF(rate, 1) +
+          "%), above the " + maxFailureRate + "% limit"));
+      }
+    }
+  });
+  return findings;
+}
+function summarize(payments, findings) {
+  var errors = findings.filter(function (f) { return f.severity === "error"; }).length;
+  var warnings = findings.length - errors;
+  var succeeded = payments.filter(function (p) { return p.status === "succeeded"; }).length;
+  var failed = payments.filter(function (p) { return p.status === "failed"; }).length;
+  var pending = payments.filter(function (p) { return p.status === "pending"; }).length;
+  var decided = succeeded + failed;
+  var failureRate = decided ? failed / decided * 100.0 : 0.0;
+  var unrecovered = findings.filter(function (f) { return f.rule === "failed-payment-unrecovered"; }).length;
+  var recovered = findings.filter(function (f) { return f.rule === "failed-payment-recovered"; }).length;
+  var unrecoveredValue = Dec(0), recoveredValue = Dec(0);
+  payments.forEach(function (p) {
+    if (p.status !== "failed" || p.amount === null) return;
+    if (p.order_id && payments.some(function (o) { return o.status === "succeeded" && o.order_id === p.order_id; })) {
+      recoveredValue = decAdd(recoveredValue, p.amount);
+    } else if (p.order_id) unrecoveredValue = decAdd(unrecoveredValue, p.amount);
+  });
+  var burst = findings.filter(function (f) { return f.rule === "card-testing-burst"; }).length;
+  var stale = findings.filter(function (f) { return f.rule === "pending-payment-stale"; }).length;
+  var gateways = {};
+  payments.forEach(function (p) { if (p.gateway) (gateways[p.gateway] = gateways[p.gateway] || []).push(p); });
+  var perGateway = Object.keys(gateways).sort().map(function (gateway) {
+    var list = gateways[gateway];
+    var gSucc = list.filter(function (p) { return p.status === "succeeded"; }).length;
+    var gFail = list.filter(function (p) { return p.status === "failed"; }).length;
+    var gPend = list.filter(function (p) { return p.status === "pending"; }).length;
+    var gDecided = gSucc + gFail;
+    var gRate = gDecided ? gFail / gDecided * 100.0 : 0.0;
+    var gUnrec = Dec(0);
+    list.forEach(function (p) {
+      if (p.status !== "failed" || p.amount === null || !p.order_id) return;
+      if (!payments.some(function (o) { return o.status === "succeeded" && o.order_id === p.order_id; })) {
+        gUnrec = decAdd(gUnrec, p.amount);
+      }
+    });
+    return { gateway: gateway, payments: list.length, succeeded: gSucc, failed: gFail,
+      pending: gPend, failureRate: gRate, unrecoveredValue: gUnrec };
+  });
+  var reasons = {};
+  payments.forEach(function (p) {
+    if (p.status === "failed" && p.error_code) reasons[p.error_code] = (reasons[p.error_code] || 0) + 1;
+  });
+  var topReasons = Object.keys(reasons).map(function (code) {
+    return { reason: code, count: reasons[code] };
+  }).sort(function (a, b) {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.reason < b.reason ? -1 : (a.reason > b.reason ? 1 : 0);
+  });
+  return { payments: payments.length, findings: findings.length, errors: errors, warnings: warnings,
+    succeeded: succeeded, failed: failed, pending: pending, failureRate: failureRate,
+    unrecovered: unrecovered, recovered: recovered, unrecoveredValue: unrecoveredValue,
+    recoveredValue: recoveredValue, burst: burst, stale: stale,
+    perGateway: perGateway, topReasons: topReasons };
+}
+function renderText(payments, findings, summary) {
+  var lines = findings.map(findingStr);
+  lines.push("");
+  lines.push("Payments: " + summary.payments + ", findings: " + summary.findings +
+    ", errors: " + summary.errors + ", warnings: " + summary.warnings);
+  lines.push("Succeeded: " + summary.succeeded + ", failed: " + summary.failed +
+    ", pending: " + summary.pending + ", failure rate: " + fmtF(summary.failureRate, 1) + "%");
+  lines.push("Unrecovered failed payments: " + summary.unrecovered + " ($" +
+    fmtF(Number(decStr(summary.unrecoveredValue)), 2) + "), recovered failed payments: " +
+    summary.recovered + " ($" + fmtF(Number(decStr(summary.recoveredValue)), 2) + ")");
+  lines.push("Card-testing burst findings: " + summary.burst + ", stale pending payments: " + summary.stale);
+  lines.push("");
+  lines.push("Per-gateway summary:");
+  summary.perGateway.forEach(function (row) {
+    lines.push(row.gateway + ": " + row.payments + " payments, " + row.succeeded + " succeeded, " +
+      row.failed + " failed, " + row.pending + " pending, failure rate " + fmtF(row.failureRate, 1) +
+      "%, unrecovered $" + fmtF(Number(decStr(row.unrecoveredValue)), 2));
+  });
+  lines.push("");
+  lines.push("Top decline reasons:");
+  if (summary.topReasons.length) {
+    summary.topReasons.forEach(function (row) { lines.push(row.reason + ": " + row.count); });
+  } else lines.push("(none recorded)");
+  if (summary.findings === 0) { lines.push(""); lines.push("All payments clean."); }
+  return lines.join("\n") + "\n";
+}
+function optInt(v, def) {
+  if (v === undefined || v === null || v === "") return def;
+  var n = Number(v);
+  return isFinite(n) ? Math.trunc(n) : def;
+}
+window.runTool = function (inputText, options) {
+  options = options || {};
+  var staleDays = optInt(options.staleDays, 7);
+  var maxFailureRate = optInt(options.maxFailureRate, 20);
+  var burstCount = optInt(options.burstCount, 3);
+  var burstHours = optInt(options.burstHours, 24);
+  if (staleDays < 0) return "ERROR: --stale-days must be at least 0\n";
+  if (maxFailureRate < 0 || maxFailureRate > 100) return "ERROR: --max-failure-rate must be from 0 to 100\n";
+  if (burstCount < 2) return "ERROR: --burst-count must be at least 2\n";
+  if (burstHours < 1) return "ERROR: --burst-hours must be at least 1\n";
+  var asOf;
+  if (options.asOf === undefined || options.asOf === null || String(options.asOf).trim() === "") asOf = nowTs();
+  else {
+    asOf = parseTimestamp(String(options.asOf));
+    if (asOf === null) return "ERROR: --as-of " + pyRepr(String(options.asOf)) + " is not a readable date\n";
+  }
+  var parsed;
+  try { parsed = parseCsv(inputText || "", asOf); }
+  catch (e) { return "ERROR: " + e.message + "\n"; }
+  var findings = parsed.findings.concat(audit(parsed.payments, asOf, staleDays, maxFailureRate, burstCount, burstHours));
+  var summary = summarize(parsed.payments, findings);
+  return renderText(parsed.payments, findings, summary);
+};
+</script>
+<script>
+var SAMPLE = `payment_id,order_id,gateway,amount,status,error_code,customer_email,attempt,date
+P-101,O-201,Stripe,49.99,failed,insufficient_funds,ana@example.com,1,2026-11-17 10:00
+P-102,O-202,Stripe,129.00,failed,card_declined,ben@example.com,1,2026-11-16 09:00
+P-103,O-202,Stripe,129.00,succeeded,,ben@example.com,2,2026-11-16 10:00
+P-104,O-203,PayPal,24.50,failed,,cara@example.com,1,2026-11-15 09:00
+P-105,O-204,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:00
+P-106,O-205,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:05
+P-107,O-206,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:10
+P-108,O-207,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:15
+P-109,O-209,Square,59.00,failed,expired_card,dan@example.com,1,2026-11-14 09:00
+P-110,O-209,Square,59.00,failed,expired_card,dan@example.com,2,2026-11-15 10:00
+P-111,O-209,Square,59.00,failed,expired_card,dan@example.com,3,2026-11-16 11:00
+P-112,O-210,PayPal,199.00,pending,,eve@example.com,1,2026-11-08 09:00
+P-113,O-211,PayPal,34.00,pending,,frank@example.com,1,2026-11-17 12:00
+P-114,O-212,Stripe,89.00,succeeded,,grace@example.com,1,2026-11-17 09:00
+P-115,O-213,Stripe,45.00,succeeded,,henry@example.com,1,2026-11-16 09:00
+P-116,O-214,PayPal,12.00,refunded,,iris@example.com,1,2026-11-15 09:00
+P-117,O-215,Stripe,abc,failed,card_declined,june@example.com,1,2026-11-17 09:00
+P-118,O-216,Stripe,25.00,failed,card_declined,kate@example.com,1,not-a-date
+P-119,O-217,Stripe,30.00,succeeded,,leo@example.com,1,2026-12-01 09:00
+P-101,O-218,Stripe,19.99,succeeded,,mia@example.com,1,2026-11-17 09:00
+P-120,O-219,Stripe,10.00,succeeded,,nina@example.com,1,2026-11-17 09:00,extra-field
+,O-220,Stripe,15.00,succeeded,,oscar@example.com,1,2026-11-17 09:00
+P-121,,Stripe,20.00,succeeded,,pam@example.com,1,2026-11-17 09:00
+`;
+var SAMPLE_CLEAN = `payment_id,order_id,gateway,amount,status,error_code,customer_email,attempt,date
+P-301,O-301,Stripe,49.99,succeeded,,ana@example.com,1,2026-11-17 10:00
+P-302,O-302,Stripe,129.00,succeeded,,ben@example.com,1,2026-11-16 09:00
+P-303,O-303,PayPal,24.50,succeeded,,cara@example.com,1,2026-11-15 09:00
+P-304,O-304,Stripe,89.00,succeeded,,dan@example.com,1,2026-11-17 09:00
+P-305,O-305,Square,59.00,refunded,,eve@example.com,1,2026-11-14 09:00
+`;
+var SAMPLE_WARN = `payment_id,order_id,gateway,amount,status,error_code,customer_email,attempt,date
+P-401,O-401,Stripe,49.99,failed,card_declined,ana@example.com,1,2026-11-17 10:00
+P-402,O-401,Stripe,49.99,succeeded,,ana@example.com,2,2026-11-17 11:00
+P-403,O-402,PayPal,24.50,pending,,ben@example.com,1,2026-11-17 12:00
+`;
+var inputEl = document.getElementById("input");
+var outEl = document.getElementById("out");
+var lastReport = "";
+document.getElementById("file").addEventListener("change", function (ev) {
+  var f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function () { inputEl.value = String(reader.result || ""); };
+  reader.readAsText(f);
+});
+document.getElementById("sample").addEventListener("click", function () { inputEl.value = SAMPLE; });
+document.getElementById("sample-clean").addEventListener("click", function () { inputEl.value = SAMPLE_CLEAN; });
+document.getElementById("sample-warn").addEventListener("click", function () { inputEl.value = SAMPLE_WARN; });
+document.getElementById("run").addEventListener("click", function () {
+  var options = {
+    staleDays: document.getElementById("opt-stale").value,
+    maxFailureRate: document.getElementById("opt-rate").value,
+    burstCount: document.getElementById("opt-burst-count").value,
+    burstHours: document.getElementById("opt-burst-hours").value,
+    asOf: document.getElementById("opt-asof").value
+  };
+  try {
+    lastReport = window.runTool(inputEl.value, options);
+    outEl.textContent = lastReport;
+  } catch (e) {
+    lastReport = "ERROR: " + e.message + "\n";
+    outEl.textContent = lastReport;
+  }
+});
+document.getElementById("download").addEventListener("click", function () {
+  var text = lastReport || outEl.textContent;
+  var blob = new Blob([text], { type: "text/plain" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "woo-payment-report.txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>

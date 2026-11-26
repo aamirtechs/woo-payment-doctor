@@ -1,0 +1,4 @@
+payment_id,order_id,gateway,amount,status,error_code,customer_email,attempt,date
+P-401,O-401,Stripe,49.99,failed,card_declined,ana@example.com,1,2026-11-17 10:00
+P-402,O-401,Stripe,49.99,succeeded,,ana@example.com,2,2026-11-17 11:00
+P-403,O-402,PayPal,24.50,pending,,ben@example.com,1,2026-11-17 12:00

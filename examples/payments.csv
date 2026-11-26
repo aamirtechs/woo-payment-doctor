@@ -1,0 +1,24 @@
+payment_id,order_id,gateway,amount,status,error_code,customer_email,attempt,date
+P-101,O-201,Stripe,49.99,failed,insufficient_funds,ana@example.com,1,2026-11-17 10:00
+P-102,O-202,Stripe,129.00,failed,card_declined,ben@example.com,1,2026-11-16 09:00
+P-103,O-202,Stripe,129.00,succeeded,,ben@example.com,2,2026-11-16 10:00
+P-104,O-203,PayPal,24.50,failed,,cara@example.com,1,2026-11-15 09:00
+P-105,O-204,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:00
+P-106,O-205,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:05
+P-107,O-206,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:10
+P-108,O-207,Stripe,9.99,failed,do_not_honor,sam@example.com,1,2026-11-17 08:15
+P-109,O-209,Square,59.00,failed,expired_card,dan@example.com,1,2026-11-14 09:00
+P-110,O-209,Square,59.00,failed,expired_card,dan@example.com,2,2026-11-15 10:00
+P-111,O-209,Square,59.00,failed,expired_card,dan@example.com,3,2026-11-16 11:00
+P-112,O-210,PayPal,199.00,pending,,eve@example.com,1,2026-11-08 09:00
+P-113,O-211,PayPal,34.00,pending,,frank@example.com,1,2026-11-17 12:00
+P-114,O-212,Stripe,89.00,succeeded,,grace@example.com,1,2026-11-17 09:00
+P-115,O-213,Stripe,45.00,succeeded,,henry@example.com,1,2026-11-16 09:00
+P-116,O-214,PayPal,12.00,refunded,,iris@example.com,1,2026-11-15 09:00
+P-117,O-215,Stripe,abc,failed,card_declined,june@example.com,1,2026-11-17 09:00
+P-118,O-216,Stripe,25.00,failed,card_declined,kate@example.com,1,not-a-date
+P-119,O-217,Stripe,30.00,succeeded,,leo@example.com,1,2026-12-01 09:00
+P-101,O-218,Stripe,19.99,succeeded,,mia@example.com,1,2026-11-17 09:00
+P-120,O-219,Stripe,10.00,succeeded,,nina@example.com,1,2026-11-17 09:00,extra-field
+,O-220,Stripe,15.00,succeeded,,oscar@example.com,1,2026-11-17 09:00
+P-121,,Stripe,20.00,succeeded,,pam@example.com,1,2026-11-17 09:00

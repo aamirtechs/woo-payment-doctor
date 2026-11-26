@@ -1,0 +1,6 @@
+payment_id,order_id,gateway,amount,status,error_code,customer_email,attempt,date
+P-301,O-301,Stripe,49.99,succeeded,,ana@example.com,1,2026-11-17 10:00
+P-302,O-302,Stripe,129.00,succeeded,,ben@example.com,1,2026-11-16 09:00
+P-303,O-303,PayPal,24.50,succeeded,,cara@example.com,1,2026-11-15 09:00
+P-304,O-304,Stripe,89.00,succeeded,,dan@example.com,1,2026-11-17 09:00
+P-305,O-305,Square,59.00,refunded,,eve@example.com,1,2026-11-14 09:00
