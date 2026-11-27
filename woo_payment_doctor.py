@@ -502,6 +502,7 @@ def summarize(payments, findings, as_of,
         gateway_rate = (gateway_failed / gateway_decided * 100.0
                         if gateway_decided else 0.0)
         gateway_unrecovered = Decimal("0")
+        first_attempt_unrecovered = Decimal("0")
         for payment in gateway_payments:
             if payment["status"] != "failed" \
                     or payment["amount"] is None \
@@ -511,6 +512,8 @@ def summarize(payments, findings, as_of,
                        and other["order_id"] == payment["order_id"]
                        for other in payments):
                 gateway_unrecovered += payment["amount"]
+                if payment["attempt"] == 1:
+                    first_attempt_unrecovered += payment["amount"]
         per_gateway.append({
             "gateway": gateway,
             "payments": len(gateway_payments),
@@ -518,7 +521,9 @@ def summarize(payments, findings, as_of,
             "failed": gateway_failed,
             "pending": gateway_pending,
             "failure_rate": round(gateway_rate, 1),
-            "unrecovered_value": float(gateway_unrecovered)})
+            "unrecovered_value": float(gateway_unrecovered),
+            "first_attempt_unrecovered_value": float(
+                first_attempt_unrecovered)})
     reasons = {}
     for payment in payments:
         if payment["status"] == "failed" and payment["error_code"]:
@@ -569,10 +574,12 @@ def render_text(payments, findings, summary):
     for row in summary["per_gateway"]:
         lines.append(
             "%s: %d payments, %d succeeded, %d failed, %d "
-            "pending, failure rate %.1f%%, unrecovered $%.2f"
+            "pending, failure rate %.1f%%, unrecovered $%.2f "
+            "($%.2f first attempt)"
             % (row["gateway"], row["payments"], row["succeeded"],
                row["failed"], row["pending"], row["failure_rate"],
-               row["unrecovered_value"]))
+               row["unrecovered_value"],
+               row["first_attempt_unrecovered_value"]))
     lines.append("")
     lines.append("Top decline reasons:")
     if summary["top_decline_reasons"]:
