@@ -140,8 +140,9 @@ counts, the overall failure rate, the unrecovered and
 recovered failed payment counts and values, the
 card-testing burst finding count, the stale pending
 count, a per-gateway table (payments, succeeded, failed,
-pending, failure rate, unrecovered value), and the top
-decline reasons.
+pending, failure rate, unrecovered value and its first-attempt
+subtotal), and the top decline reasons. Missing or unreadable
+attempt values count as first attempts.
 
 ## Usage
 
@@ -189,9 +190,9 @@ Unrecovered failed payments: 11 ($316.45), recovered failed payments: 1 ($129.00
 Card-testing burst findings: 4, stale pending payments: 1
 
 Per-gateway summary:
-PayPal: 4 payments, 0 succeeded, 1 failed, 2 pending, failure rate 100.0%, unrecovered $24.50
-Square: 3 payments, 0 succeeded, 3 failed, 0 pending, failure rate 100.0%, unrecovered $177.00
-Stripe: 15 payments, 7 succeeded, 8 failed, 0 pending, failure rate 53.3%, unrecovered $114.95
+PayPal: 4 payments, 0 succeeded, 1 failed, 2 pending, failure rate 100.0%, unrecovered $24.50 ($24.50 first attempt)
+Square: 3 payments, 0 succeeded, 3 failed, 0 pending, failure rate 100.0%, unrecovered $177.00 ($59.00 first attempt)
+Stripe: 15 payments, 7 succeeded, 8 failed, 0 pending, failure rate 53.3%, unrecovered $114.95 ($114.95 first attempt)
 
 Top decline reasons:
 do_not_honor: 4
@@ -228,9 +229,9 @@ Unrecovered failed payments: 0 ($0.00), recovered failed payments: 0 ($0.00)
 Card-testing burst findings: 0, stale pending payments: 0
 
 Per-gateway summary:
-PayPal: 1 payments, 1 succeeded, 0 failed, 0 pending, failure rate 0.0%, unrecovered $0.00
-Square: 1 payments, 0 succeeded, 0 failed, 0 pending, failure rate 0.0%, unrecovered $0.00
-Stripe: 3 payments, 3 succeeded, 0 failed, 0 pending, failure rate 0.0%, unrecovered $0.00
+PayPal: 1 payments, 1 succeeded, 0 failed, 0 pending, failure rate 0.0%, unrecovered $0.00 ($0.00 first attempt)
+Square: 1 payments, 0 succeeded, 0 failed, 0 pending, failure rate 0.0%, unrecovered $0.00 ($0.00 first attempt)
+Stripe: 3 payments, 3 succeeded, 0 failed, 0 pending, failure rate 0.0%, unrecovered $0.00 ($0.00 first attempt)
 
 Top decline reasons:
 (none recorded)
@@ -259,9 +260,9 @@ Unrecovered failed payments: 11 ($316.45), recovered failed payments: 1 ($129.00
 Card-testing burst findings: 0, stale pending payments: 1
 
 Per-gateway summary:
-PayPal: 4 payments, 0 succeeded, 1 failed, 2 pending, failure rate 100.0%, unrecovered $24.50
-Square: 3 payments, 0 succeeded, 3 failed, 0 pending, failure rate 100.0%, unrecovered $177.00
-Stripe: 15 payments, 7 succeeded, 8 failed, 0 pending, failure rate 53.3%, unrecovered $114.95
+PayPal: 4 payments, 0 succeeded, 1 failed, 2 pending, failure rate 100.0%, unrecovered $24.50 ($24.50 first attempt)
+Square: 3 payments, 0 succeeded, 3 failed, 0 pending, failure rate 100.0%, unrecovered $177.00 ($59.00 first attempt)
+Stripe: 15 payments, 7 succeeded, 8 failed, 0 pending, failure rate 53.3%, unrecovered $114.95 ($114.95 first attempt)
 
 Top decline reasons:
 do_not_honor: 4
@@ -311,7 +312,8 @@ warnings-only file:
       "failed": 0,
       "pending": 1,
       "failure_rate": 0.0,
-      "unrecovered_value": 0.0
+      "unrecovered_value": 0.0,
+      "first_attempt_unrecovered_value": 0.0
     },
     {
       "gateway": "Stripe",
@@ -320,7 +322,8 @@ warnings-only file:
       "failed": 1,
       "pending": 0,
       "failure_rate": 50.0,
-      "unrecovered_value": 0.0
+      "unrecovered_value": 0.0,
+      "first_attempt_unrecovered_value": 0.0
     }
   ],
   "top_decline_reasons": [
@@ -383,7 +386,7 @@ warnings-only file:
 python3 -m unittest discover -s tests -v
 ```
 
-69 tests, all passing: timestamp and amount parsing,
+74 tests, all passing: timestamp and amount parsing,
 status normalization, header aliases and BOM handling,
 malformed rows, duplicate and missing payment ids,
 missing order ids and gateways, invalid amounts and
@@ -396,7 +399,7 @@ summary totals and value math, per-gateway tables and
 top decline reasons, text and JSON output, `--out` file
 output, `--stale-days`, `--max-failure-rate`, and
 `--burst-count` flags, and `--check` and `--strict` exit
-codes. The same 69 tests pass under pytest.
+codes.
 
 ## License
 

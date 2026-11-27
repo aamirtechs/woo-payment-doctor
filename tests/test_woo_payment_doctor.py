@@ -474,6 +474,61 @@ class TestGatewayFailureRate(unittest.TestCase):
 
 
 class TestSummarize(unittest.TestCase):
+    def test_first_attempt_unrecovered_values(self):
+        for attempt, expected in (("1", 49.99), ("", 49.99),
+                                  ("unreadable", 49.99),
+                                  ("2", 0.0), ("3", 0.0)):
+            with self.subTest(attempt=attempt):
+                payments, findings = parse_and_audit(
+                    row(status="failed", attempt=attempt))
+                summary = doctor.summarize(payments, findings, AS_OF)
+                self.assertEqual(summary["per_gateway"], [{
+                    "gateway": "Stripe", "payments": 1,
+                    "succeeded": 0, "failed": 1, "pending": 0,
+                    "failure_rate": 100.0, "unrecovered_value": 49.99,
+                    "first_attempt_unrecovered_value": expected}])
+                self.assertEqual(summary["unrecovered_value"], 49.99)
+
+    def test_first_attempt_without_attempt_column(self):
+        path = write_csv(
+            "payment_id,order_id,gateway,amount,status,date\n"
+            "P-1,O-1,Stripe,49.99,failed,2026-11-17\n")
+        try:
+            payments, findings = doctor.parse_csv(path, AS_OF)
+        finally:
+            os.unlink(path)
+        findings.extend(doctor.audit(payments, AS_OF))
+        summary = doctor.summarize(payments, findings, AS_OF)
+        self.assertEqual(summary["per_gateway"][0][
+            "first_attempt_unrecovered_value"], 49.99)
+
+    def test_first_attempt_excludes_nonqualifying_payments(self):
+        body = (row(payment_id="P-1", status="failed")
+                + row(payment_id="P-2", gateway="PayPal", attempt="2")
+                + row(payment_id="P-3", order="", status="failed")
+                + row(payment_id="P-4", order="O-4", status="failed",
+                      amount="abc")
+                + row(payment_id="P-5", order="O-5", status="pending")
+                + row(payment_id="P-6", order="O-6", status="refunded"))
+        payments, findings = parse_and_audit(body)
+        summary = doctor.summarize(payments, findings, AS_OF)
+        self.assertEqual(summary["recovered_value"], 49.99)
+        self.assertEqual(summary["unrecovered_value"], 0.0)
+        for gateway in summary["per_gateway"]:
+            self.assertEqual(gateway["unrecovered_value"], 0.0)
+            self.assertEqual(gateway["first_attempt_unrecovered_value"], 0.0)
+
+    def test_first_attempt_decimal_sum(self):
+        body = (row(payment_id="P-1", amount="0.10", status="failed")
+                + row(payment_id="P-2", amount="0.20", status="failed")
+                + row(payment_id="P-3", amount="0.40", status="failed",
+                      attempt="2"))
+        payments, findings = parse_and_audit(body)
+        summary = doctor.summarize(payments, findings, AS_OF)
+        gateway = summary["per_gateway"][0]
+        self.assertEqual(gateway["unrecovered_value"], 0.7)
+        self.assertEqual(gateway["first_attempt_unrecovered_value"], 0.3)
+
     def test_summary_totals(self):
         body = (row(payment_id="P-1", status="failed",
                     error="card_declined")
@@ -534,8 +589,34 @@ class TestOutput(unittest.TestCase):
                       text)
         self.assertIn("Stripe: 15 payments, 7 succeeded, 8 failed, "
                       "0 pending, failure rate 53.3%, "
-                      "unrecovered $114.95", text)
+                      "unrecovered $114.95 ($114.95 first attempt)", text)
+        self.assertIn("Square: 3 payments, 0 succeeded, 3 failed, "
+                      "0 pending, failure rate 100.0%, "
+                      "unrecovered $177.00 ($59.00 first attempt)", text)
         self.assertIn("do_not_honor: 4", text)
+
+    def test_json_output_sample_gateway_values(self):
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "examples", "payments.csv")
+        code, text = run_cli([path, "--as-of", "2026-11-18", "--json"])
+        self.assertEqual(code, 0)
+        report = json.loads(text)
+        self.assertEqual(report["unrecovered_value"], 316.45)
+        self.assertEqual(report["recovered_value"], 129.0)
+        self.assertEqual(report["per_gateway"], [
+            {"gateway": "PayPal", "payments": 4, "succeeded": 0,
+             "failed": 1, "pending": 2, "failure_rate": 100.0,
+             "unrecovered_value": 24.5,
+             "first_attempt_unrecovered_value": 24.5},
+            {"gateway": "Square", "payments": 3, "succeeded": 0,
+             "failed": 3, "pending": 0, "failure_rate": 100.0,
+             "unrecovered_value": 177.0,
+             "first_attempt_unrecovered_value": 59.0},
+            {"gateway": "Stripe", "payments": 15, "succeeded": 7,
+             "failed": 8, "pending": 0, "failure_rate": 53.3,
+             "unrecovered_value": 114.95,
+             "first_attempt_unrecovered_value": 114.95}])
 
     def test_json_output(self):
         path = os.path.join(
@@ -550,6 +631,9 @@ class TestOutput(unittest.TestCase):
         self.assertEqual(report["errors"], 0)
         self.assertEqual(report["warnings"], 2)
         self.assertEqual(len(report["findings"]), 2)
+        for gateway in report["per_gateway"]:
+            self.assertEqual(gateway["unrecovered_value"], 0.0)
+            self.assertEqual(gateway["first_attempt_unrecovered_value"], 0.0)
 
     def test_clean_output(self):
         path = os.path.join(
@@ -559,6 +643,8 @@ class TestOutput(unittest.TestCase):
         code, text = run_cli([path, "--as-of", "2026-11-18"])
         self.assertEqual(code, 0)
         self.assertIn("All payments clean.", text)
+        self.assertEqual(text.count(
+            "unrecovered $0.00 ($0.00 first attempt)"), 3)
 
     def test_out_file(self):
         path = os.path.join(
